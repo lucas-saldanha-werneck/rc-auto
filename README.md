@@ -66,7 +66,28 @@ own session id there. The id is the session's `CLAUDE_CODE_HOST_SESSION_ID` envi
 Without the file, or if it does not parse, every session follows the 24-hour rule. rc-auto only
 skips the switch-off for listed sessions; it still switches them on when you type.
 
-There are no other settings.
+## Your settings
+
+If another tool already writes its session id to a file of its own (in the same
+`{"local_id": ...}` or `{"session_ids": [...]}` shape), point rc-auto at that file instead of
+copying the id. Your settings live outside the plugin, so plugin updates never touch them.
+
+- **Settings file**: `~/.config/rc-auto/config.json` (or `$XDG_CONFIG_HOME/rc-auto/config.json`
+  when `XDG_CONFIG_HOME` is set; on Windows `~` is `%USERPROFILE%` when `HOME` is not set):
+
+  ```json
+  { "keep_on_files": ["~/.claude/state/my-relay.json", "/srv/shared/keep-on.json"] }
+  ```
+
+- **Or `/config`** in Claude Code: the *Extra keep-on files* option (`keep_on_files`, a list of
+  paths). Claude Code stores it in your `settings.json` under `pluginConfigs`.
+
+| Key | Where | Type | Effect |
+| --- | --- | --- | --- |
+| `keep_on_files` | settings file or `/config` | list of paths (one string also works in the file) | extra keep-on files, read besides `~/.claude/rc-auto-keep-on.json`. A leading `~` is your home folder |
+
+A session stays on when any of the files lists it. A file that is missing or does not parse is
+skipped. `/rc-auto` shows which files it reads. There are no other settings.
 
 ## How it works
 
