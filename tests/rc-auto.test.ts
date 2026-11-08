@@ -248,6 +248,26 @@ test('/rc-auto lists the keep-on files it reads', { options: { keep_on_files: ['
   expect(posix(out.text)).toContain('rc-auto-keep-on.json')
 })
 
+test('keep-on paths are trimmed, and a relative one is never read from the project folder', { options: { keep_on_files: [' ~/opt.json '] } }, async ($, on) => {
+  const clock = mock.clock(on, { now: 1000 })
+  mock.env(on, { HOME: '/home/u', CLAUDE_CODE_HOST_SESSION_ID: 'abc' })
+  const read = files(on, {
+    '/home/u/.config/rc-auto/config.json': { keep_on_files: ['  ~/.claude/state/relay.json', 'state/relay.json', '.claude/x.json'] },
+    '/home/u/.claude/state/relay.json': { local_id: 'other' },
+    '/home/u/opt.json': { local_id: 'other' },
+    'state/relay.json': { local_id: 'abc' },
+    '.claude/x.json': { local_id: 'abc' },
+  })
+  const calls = app(on)
+  await turn($ as never, 'composer')
+  await clock.advance(DAY)
+  expect(enabled(calls)).toEqual([true, false])
+  // The engine resolves a relative path against the session's folder; none may be read at all.
+  expect([...new Set(read)].sort()).toEqual([
+    '/home/u/.claude/rc-auto-keep-on.json', '/home/u/.claude/state/relay.json', '/home/u/.config/rc-auto/config.json', '/home/u/opt.json',
+  ])
+})
+
 // ---- first session: your settings file is created when missing
 
 import { CONFIG_EXAMPLE } from '../hooks/config-example'
@@ -334,6 +354,13 @@ test('no home folder, or a relative XDG_CONFIG_HOME: nothing is written', async 
   const writes = disk(on)
   await start($ as never)
   expect(writes).toEqual([])
+})
+
+test('a relative XDG_CONFIG_HOME is ignored: the settings file under HOME is used and created', async ($, on) => {
+  mock.env(on, { HOME: '/home/u', XDG_CONFIG_HOME: '.config' })
+  const writes = disk(on)
+  await start($ as never)
+  expect(writes.map(w => w.path)).toEqual(['/home/u/.config/rc-auto/config.json'])
 })
 
 test('the starter file is valid JSON, every key at its default and documented', async () => {

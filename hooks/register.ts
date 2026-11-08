@@ -51,7 +51,13 @@ const expand = (path: string, h: string | undefined): string | undefined => {
 }
 
 const paths = (v: unknown): string[] =>
-  (typeof v === 'string' ? [v] : Array.isArray(v) ? v : []).filter((p): p is string => typeof p === 'string' && p.trim() !== '')
+  (typeof v === 'string' ? [v] : Array.isArray(v) ? v : [])
+    .filter((p): p is string => typeof p === 'string')
+    .map(p => p.trim())
+    .filter(p => p !== '')
+
+// POSIX /x, Windows C:\x or C:/x. A relative path would land in the session's folder.
+const isAbsolute = (p: string): boolean => p.startsWith('/') || /^[A-Za-z]:[\\/]/.test(p)
 
 const readJson = async ($: EngineInterface, file: string): Promise<Record<string, unknown> | undefined> => {
   try {
@@ -63,9 +69,10 @@ const readJson = async ($: EngineInterface, file: string): Promise<Record<string
 }
 
 // Your settings file: $XDG_CONFIG_HOME/rc-auto/config.json, else ~/.config/rc-auto/config.json.
+// A relative XDG_CONFIG_HOME is ignored (the XDG spec says so; it would be read from the project).
 const settingsFile = async ($: EngineInterface, h: string | undefined): Promise<string | undefined> => {
   const xdg = await $.env.get('XDG_CONFIG_HOME')
-  const base = xdg !== undefined && xdg !== '' ? xdg : h !== undefined ? `${h}/.config` : undefined
+  const base = xdg !== undefined && isAbsolute(xdg) ? xdg : h !== undefined ? `${h}/.config` : undefined
   return base === undefined ? undefined : `${base}/rc-auto/config.json`
 }
 
@@ -81,11 +88,9 @@ const keepOnFiles = async ($: EngineInterface): Promise<string[]> => {
     files.push(...paths(settings?.keep_on_files).map(p => expand(p, h)))
   }
   files.push(...optionFiles.map(p => expand(p, h)))
-  return [...new Set(files.filter((f): f is string => f !== undefined))]
+  // A relative path would be read from each session's project folder: skip it.
+  return [...new Set(files.filter((f): f is string => f !== undefined && isAbsolute(f)))]
 }
-
-// POSIX /x, Windows C:\x or C:/x. A relative path would land in the session's folder.
-const isAbsolute = (p: string): boolean => p.startsWith('/') || /^[A-Za-z]:[\\/]/.test(p)
 
 // First session after install: create your settings file from CONFIG_EXAMPLE
 // when there is none. A file that is there is never rewritten, and any error
@@ -200,7 +205,7 @@ export const register: Register = (on, options) => {
       app ? 'Desktop app: yes' : 'Desktop app: no (this session has no Remote Control switch tool)',
       `Remote Control (as set by rc-auto): ${await read($, rc)}`,
       typed > 0 ? `Last message from you: ${new Date(typed).toISOString()}; off after 24 h without one` : 'No message from you yet',
-      `Keep-on files read: ${(await keepOnFiles($).catch(() => [])).join(', ') || 'none'}`,
+      `Keep-on files checked: ${(await keepOnFiles($).catch(() => [])).join(', ') || 'none'}`,
       ...(err !== '' ? [`Last error: ${err}`] : []),
     ]
     return { text: lines.join('\n') }

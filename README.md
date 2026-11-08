@@ -73,7 +73,7 @@ If another tool already writes its session id to a file of its own (in the same
 copying the id. Your settings live outside the plugin, so plugin updates never touch them.
 
 - **Settings file**: `~/.config/rc-auto/config.json` (or `$XDG_CONFIG_HOME/rc-auto/config.json`
-  when `XDG_CONFIG_HOME` is set; on Windows `~` is `%USERPROFILE%` when `HOME` is not set):
+  when `XDG_CONFIG_HOME` is set to an absolute path; on Windows `~` is `%USERPROFILE%` when `HOME` is not set):
 
   ```json
   { "keep_on_files": ["~/.claude/state/my-relay.json", "/srv/shared/keep-on.json"] }
@@ -84,10 +84,10 @@ copying the id. Your settings live outside the plugin, so plugin updates never t
 
 | Key | Where | Type | Effect |
 | --- | --- | --- | --- |
-| `keep_on_files` | settings file or `/config` | list of paths (one string also works in the file) | extra keep-on files, read besides `~/.claude/rc-auto-keep-on.json`. A leading `~` is your home folder |
+| `keep_on_files` | settings file or `/config` | list of paths (one string also works in the file) | extra keep-on files, read besides `~/.claude/rc-auto-keep-on.json`. A leading `~` is your home folder; a relative path is skipped (it would depend on the session's folder) |
 
 A session stays on when any of the files lists it. A file that is missing or does not parse is
-skipped. `/rc-auto` shows which files it reads. There are no other settings.
+skipped. `/rc-auto` shows which files it checks. There are no other settings.
 
 You don't have to create the settings file: the first session after you install rc-auto creates
 it with the defaults (`"keep_on_files": []`, which changes nothing) and a `_doc` note on each
