@@ -54,7 +54,8 @@ another tool connected it, rc-auto leaves it connected, and you need nothing her
 The keep-on file is for a session you did type in but want to keep on past 24 idle hours, for
 example one that afterwards only receives messages from another tool. List its id in
 `~/.claude/rc-auto-keep-on.json` (or `$CLAUDE_CONFIG_DIR/rc-auto-keep-on.json` if you set
-`CLAUDE_CONFIG_DIR`):
+`CLAUDE_CONFIG_DIR`). On Windows, `~` is your user folder (`%USERPROFILE%`) when `HOME` is not
+set:
 
 ```json
 { "session_ids": ["<session id>"] }
@@ -103,7 +104,8 @@ At a terminal session's prompt, use `/plugin` in place of `claude plugin`.
 - rc-auto only knows what it set. If you turn Remote Control off by hand, rc-auto still thinks it
   is on and does not turn it back on when you type, until its own 24-hour switch-off has run. It
   switches off only sessions it turned on.
-- Not tried by hand for this release, and not tested on Windows or Linux.
+- Not tried by hand for this release. The automated tests run on Linux, macOS and Windows; on
+  Linux and Windows nothing else was tried.
 
 ## License
 

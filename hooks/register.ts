@@ -32,7 +32,9 @@ const hasTool = async ($: EngineInterface): Promise<boolean> =>
 const keepOnFile = async ($: EngineInterface): Promise<string | undefined> => {
   const dir = await $.env.get('CLAUDE_CONFIG_DIR')
   if (dir !== undefined && dir !== '') return `${dir}/rc-auto-keep-on.json`
-  const home = await $.env.get('HOME')
+  // Windows does not set HOME unless a shell like Git Bash does; it sets USERPROFILE.
+  let home = await $.env.get('HOME')
+  if (home === undefined || home === '') home = await $.env.get('USERPROFILE')
   return home !== undefined && home !== '' ? `${home}/.claude/rc-auto-keep-on.json` : undefined
 }
 
