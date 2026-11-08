@@ -97,7 +97,7 @@ test('a session listed in the keep-on file stays on', async ($, on) => {
 
 test('without HOME the keep-on file is found under USERPROFILE (Windows)', async ($, on) => {
   const clock = mock.clock(on, { now: 1000 })
-  mock.env(on, { USERPROFILE: '/users/u', CLAUDE_CODE_HOST_SESSION_ID: 'abc' })
+  mock.env(on, { USERPROFILE: '/profile/u', CLAUDE_CODE_HOST_SESSION_ID: 'abc' })
   const read: string[] = []
   on('fs.read', async (_$, e) => {
     read.push((e as { path: string }).path)
@@ -107,7 +107,7 @@ test('without HOME the keep-on file is found under USERPROFILE (Windows)', async
   await turn($ as never, 'composer')
   await clock.advance(DAY)
   expect(enabled(calls)).toEqual([true])
-  expect(read.map(posix)).toEqual(['/users/u/.claude/rc-auto-keep-on.json'])
+  expect(read.map(posix)).toEqual(['/profile/u/.claude/rc-auto-keep-on.json'])
 })
 
 test('a session not in the keep-on file still turns off', async ($, on) => {
