@@ -92,7 +92,7 @@ test('a session listed in the keep-on file stays on', async ($, on) => {
   await turn($ as never, 'composer')
   await clock.advance(DAY)
   expect(enabled(calls)).toEqual([true])
-  expect(read.map(posix)).toEqual(['/home/u/.claude/rc-auto-keep-on.json'])
+  expect(read.map(posix)).toEqual(['/home/u/.config/rc-auto/config.json', '/home/u/.claude/rc-auto-keep-on.json'])
 })
 
 test('without HOME the keep-on file is found under USERPROFILE (Windows)', async ($, on) => {
@@ -107,7 +107,7 @@ test('without HOME the keep-on file is found under USERPROFILE (Windows)', async
   await turn($ as never, 'composer')
   await clock.advance(DAY)
   expect(enabled(calls)).toEqual([true])
-  expect(read.map(posix)).toEqual(['/profile/u/.claude/rc-auto-keep-on.json'])
+  expect(read.map(posix)).toEqual(['/profile/u/.config/rc-auto/config.json', '/profile/u/.claude/rc-auto-keep-on.json'])
 })
 
 test('a session not in the keep-on file still turns off', async ($, on) => {
@@ -173,4 +173,242 @@ test('a session you never type in is left alone', async ($, on) => {
   await turn($ as never, 'plugin')
   await clock.advance(2 * DAY)
   expect(calls).toEqual([])
+})
+
+// Files by POSIX path; any other path reads as empty (not JSON), like a missing file.
+const files = (on: On, byPath: Record<string, unknown>): string[] => {
+  const read: string[] = []
+  on('fs.read', async (_$, e) => {
+    const path = posix((e as { path: string }).path)
+    read.push(path)
+    return { value: path in byPath ? JSON.stringify(byPath[path]) : '' } as never
+  })
+  return read
+}
+
+test('your settings file can point at another keep-on file', async ($, on) => {
+  const clock = mock.clock(on, { now: 1000 })
+  mock.env(on, { HOME: '/home/u', CLAUDE_CODE_HOST_SESSION_ID: 'abc' })
+  const read = files(on, {
+    '/home/u/.config/rc-auto/config.json': { keep_on_files: ['~/.claude/state/relay.json'] },
+    '/home/u/.claude/state/relay.json': { local_id: 'abc' },
+  })
+  const calls = app(on)
+  await turn($ as never, 'composer')
+  await clock.advance(DAY)
+  expect(enabled(calls)).toEqual([true])
+  expect(read).toContain('/home/u/.claude/state/relay.json')
+})
+
+test('the settings file follows XDG_CONFIG_HOME', async ($, on) => {
+  const clock = mock.clock(on, { now: 1000 })
+  mock.env(on, { HOME: '/home/u', XDG_CONFIG_HOME: '/xdg', CLAUDE_CODE_HOST_SESSION_ID: 'abc' })
+  files(on, {
+    '/xdg/rc-auto/config.json': { keep_on_files: '/data/keep.json' },
+    '/data/keep.json': { session_ids: ['abc'] },
+  })
+  const calls = app(on)
+  await turn($ as never, 'composer')
+  await clock.advance(DAY)
+  expect(enabled(calls)).toEqual([true])
+})
+
+test('the keep_on_files option adds files too', { options: { keep_on_files: ['~/elsewhere.json'] } }, async ($, on) => {
+  const clock = mock.clock(on, { now: 1000 })
+  mock.env(on, { HOME: '/home/u', CLAUDE_CODE_HOST_SESSION_ID: 'abc' })
+  files(on, { '/home/u/elsewhere.json': { local_id: 'abc' } })
+  const calls = app(on)
+  await turn($ as never, 'composer')
+  await clock.advance(DAY)
+  expect(enabled(calls)).toEqual([true])
+})
+
+test('a session in none of the listed files still turns off', { options: { keep_on_files: ['/b.json'] } }, async ($, on) => {
+  const clock = mock.clock(on, { now: 1000 })
+  mock.env(on, { HOME: '/home/u', CLAUDE_CODE_HOST_SESSION_ID: 'abc' })
+  const read = files(on, {
+    '/home/u/.config/rc-auto/config.json': { keep_on_files: ['/a.json'] },
+    '/a.json': { local_id: 'other' },
+    '/b.json': { session_ids: ['x', 'y'] },
+  })
+  const calls = app(on)
+  await turn($ as never, 'composer')
+  await clock.advance(DAY)
+  expect(enabled(calls)).toEqual([true, false])
+  expect(read).toEqual(expect.arrayContaining(['/a.json', '/b.json', '/home/u/.claude/rc-auto-keep-on.json']))
+})
+
+test('/rc-auto lists the keep-on files it reads', { options: { keep_on_files: ['/b.json'] } }, async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.env(on, { HOME: '/home/u' })
+  files(on, {})
+  app(on)
+  const out = await ($ as never as { command: { run: (e: object) => Promise<{ text: string }> } }).command.run({ command: 'rc-auto', args: '' })
+  expect(posix(out.text)).toContain('/b.json')
+  expect(posix(out.text)).toContain('rc-auto-keep-on.json')
+})
+
+test('keep-on paths are trimmed, and a relative one is never read from the project folder', { options: { keep_on_files: [' ~/opt.json '] } }, async ($, on) => {
+  const clock = mock.clock(on, { now: 1000 })
+  mock.env(on, { HOME: '/home/u', CLAUDE_CODE_HOST_SESSION_ID: 'abc' })
+  const read = files(on, {
+    '/home/u/.config/rc-auto/config.json': { keep_on_files: ['  ~/.claude/state/relay.json', 'state/relay.json', '.claude/x.json'] },
+    '/home/u/.claude/state/relay.json': { local_id: 'other' },
+    '/home/u/opt.json': { local_id: 'other' },
+    'state/relay.json': { local_id: 'abc' },
+    '.claude/x.json': { local_id: 'abc' },
+  })
+  const calls = app(on)
+  await turn($ as never, 'composer')
+  await clock.advance(DAY)
+  expect(enabled(calls)).toEqual([true, false])
+  // The engine resolves a relative path against the session's folder; none may be read at all.
+  expect([...new Set(read)].sort()).toEqual([
+    '/home/u/.claude/rc-auto-keep-on.json', '/home/u/.claude/state/relay.json', '/home/u/.config/rc-auto/config.json', '/home/u/opt.json',
+  ])
+})
+
+// ---- first session: your settings file is created when missing
+
+import { CONFIG_EXAMPLE } from '../hooks/config-example'
+
+type Write = { path: string; text: string }
+
+// A file system that has exactly the given POSIX paths; writes are recorded,
+// not made. `failWrite` makes every write reject, like a read-only folder.
+const disk = (on: On, have: string[] = [], failWrite = false): Write[] => {
+  const writes: Write[] = []
+  on('fs.exists', async (_$, e) => ({ value: have.includes(posix((e as { path: string }).path)) }) as never)
+  on('fs.write', async (_$, e) => {
+    const w = e as Write
+    if (failWrite) throw new Error('EACCES: permission denied')
+    writes.push({ path: posix(w.path), text: w.text })
+    return { value: undefined } as never
+  })
+  on('command.register', async () => ({ value: undefined }) as never)
+  core(on)
+  return writes
+}
+
+// What core does beneath the plugins at session start: echo { cwd }.
+const core = (on: On): void => {
+  on('session.start', async (_$, e) => ({ cwd: (e as { cwd: string }).cwd }) as never)
+}
+
+const start = async ($: never): Promise<unknown> =>
+  ($ as { session: { start: (e: never) => Promise<unknown> } }).session.start({ cwd: '/work', surface: null, isInteractive: false } as never)
+
+test('the first session creates the settings file with the defaults', async ($, on) => {
+  mock.env(on, { HOME: '/home/u' })
+  const writes = disk(on)
+  expect(await start($ as never)).toEqual({ cwd: '/work' })
+  expect(writes).toEqual([{ path: '/home/u/.config/rc-auto/config.json', text: CONFIG_EXAMPLE }])
+})
+
+test('the settings file is created under XDG_CONFIG_HOME when it is set', async ($, on) => {
+  mock.env(on, { HOME: '/home/u', XDG_CONFIG_HOME: '/xdg' })
+  const writes = disk(on)
+  await start($ as never)
+  expect(writes.map(w => w.path)).toEqual(['/xdg/rc-auto/config.json'])
+})
+
+test('without HOME the settings file goes under USERPROFILE (Windows)', async ($, on) => {
+  mock.env(on, { USERPROFILE: '/profile/u' })
+  const writes = disk(on)
+  await start($ as never)
+  expect(writes.map(w => w.path)).toEqual(['/profile/u/.config/rc-auto/config.json'])
+})
+
+test('an existing settings file is never rewritten', async ($, on) => {
+  mock.env(on, { HOME: '/home/u' })
+  const writes = disk(on, ['/home/u/.config/rc-auto/config.json'])
+  await start($ as never)
+  await start($ as never)
+  expect(writes).toEqual([])
+})
+
+test('a refused or failing write does not stop the session', async ($, on) => {
+  mock.env(on, { HOME: '/home/u' })
+  disk(on, [], true)
+  expect(await start($ as never)).toEqual({ cwd: '/work' })
+})
+
+test('a failing exists check does not stop the session and writes nothing', async ($, on) => {
+  mock.env(on, { HOME: '/home/u' })
+  const writes: Write[] = []
+  on('fs.exists', async () => {
+    throw new Error('EIO')
+  })
+  on('fs.write', async (_$, e) => {
+    writes.push(e as Write)
+    return { value: undefined } as never
+  })
+  on('command.register', async () => ({ value: undefined }) as never)
+  core(on)
+  expect(await start($ as never)).toEqual({ cwd: '/work' })
+  expect(writes).toEqual([])
+})
+
+test('no home folder, or a relative XDG_CONFIG_HOME: nothing is written', async ($, on) => {
+  mock.env(on, { XDG_CONFIG_HOME: 'relative/dir' })
+  const writes = disk(on)
+  await start($ as never)
+  expect(writes).toEqual([])
+})
+
+test('a relative XDG_CONFIG_HOME is ignored: the settings file under HOME is used and created', async ($, on) => {
+  mock.env(on, { HOME: '/home/u', XDG_CONFIG_HOME: '.config' })
+  const writes = disk(on)
+  await start($ as never)
+  expect(writes.map(w => w.path)).toEqual(['/home/u/.config/rc-auto/config.json'])
+})
+
+test('the starter file is valid JSON, every key at its default and documented', async () => {
+  const cfg = JSON.parse(CONFIG_EXAMPLE) as Record<string, unknown>
+  expect(Object.keys(cfg).sort()).toEqual(['_doc', 'keep_on_files'])
+  expect(cfg.keep_on_files).toEqual([])
+  expect(Object.keys(cfg._doc as object)).toContain('keep_on_files')
+})
+
+// The same day in the same session, once with no settings file and once with
+// the starter file: same switch calls and same keep-on files read.
+const dayWith = async ($: never, on: On, settings: string | undefined): Promise<{ calls: boolean[]; report: string }> => {
+  const clock = mock.clock(on, { now: 1000 })
+  mock.env(on, { HOME: '/home/u', CLAUDE_CODE_HOST_SESSION_ID: 'abc' })
+  on('fs.read', async (_$, e) => {
+    const path = posix((e as { path: string }).path)
+    if (path === '/home/u/.config/rc-auto/config.json' && settings !== undefined) return { value: settings } as never
+    if (path === '/home/u/elsewhere.json') return { value: JSON.stringify({ local_id: 'abc' }) } as never
+    throw new Error('ENOENT')
+  })
+  const calls = app(on)
+  await turn($, 'composer')
+  await clock.advance(DAY)
+  const out = await ($ as { command: { run: (e: object) => Promise<{ text: string }> } }).command.run({ command: 'rc-auto', args: '' })
+  return { calls: enabled(calls), report: posix(out.text) }
+}
+
+let noFile: { calls: boolean[]; report: string } | undefined
+let noFileWithOption: { calls: boolean[]; report: string } | undefined
+
+test('reference: no settings file', async ($, on) => {
+  noFile = await dayWith($ as never, on, undefined)
+  expect(noFile.calls).toEqual([true, false])
+})
+
+test('the starter settings file behaves exactly like no file', async ($, on) => {
+  const seeded = await dayWith($ as never, on, CONFIG_EXAMPLE)
+  expect(noFile).toBeDefined()
+  expect(seeded).toEqual(noFile)
+})
+
+test('reference: no settings file, keep_on_files set in /config', { options: { keep_on_files: ['~/elsewhere.json'] } }, async ($, on) => {
+  noFileWithOption = await dayWith($ as never, on, undefined)
+  expect(noFileWithOption.calls).toEqual([true])
+})
+
+test('with the starter file the /config keep_on_files option still applies', { options: { keep_on_files: ['~/elsewhere.json'] } }, async ($, on) => {
+  const seeded = await dayWith($ as never, on, CONFIG_EXAMPLE)
+  expect(noFileWithOption).toBeDefined()
+  expect(seeded).toEqual(noFileWithOption)
 })
