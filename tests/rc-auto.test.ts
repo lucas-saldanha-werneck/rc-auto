@@ -110,3 +110,48 @@ test('/rc-auto reports the state', async ($, on) => {
   expect(out.text).toContain('Remote Control (as set by rc-auto): on')
   expect(out.text).toContain('Last message from you: 1970-01-01T00:00:01.000Z')
 })
+
+test('a failed switch-off is tried again until it works', async ($, on) => {
+  const clock = mock.clock(on, { now: 1000 })
+  const calls: boolean[] = []
+  let failOff = true
+  on('tool.list', async () => ({ value: [{ name: RC_TOOL }] }) as never)
+  on('tool.call', async (_$, e) => {
+    const want = (e as { enabled: boolean }).enabled
+    calls.push(want)
+    if (!want && failOff) return { result: 'error', text: 'app busy', isError: true } as never
+    return { result: 'ok', text: 'ok' } as never
+  })
+  on('prompt.submit', async (_$, e) => ({ text: e.text }))
+  on('turn.complete', async () => ({ text: '' }) as never)
+  await turn($ as never, 'composer')
+  await clock.advance(DAY)
+  expect(calls).toEqual([true, false])
+  failOff = false
+  await clock.advance(60 * 60 * 1000)
+  expect(calls.filter(c => !c).length).toBeGreaterThan(1)
+  const tries = calls.length
+  await clock.advance(DAY)
+  // Once it worked, it stops trying.
+  expect(calls.length).toBe(tries)
+})
+
+test('a message counts from when you send it, not when the turn ends', async ($, on) => {
+  const clock = mock.clock(on, { now: 1000 })
+  const calls = app(on)
+  await turn($ as never, 'composer')
+  await clock.advance(DAY - 10)
+  // A message arrives just before the deadline; its turn is still running.
+  const s = $ as never as { prompt: { submit: (e: never) => Promise<unknown> } }
+  await s.prompt.submit({ text: 'hello', origin: { kind: 'bridge' } } as never)
+  await clock.advance(20)
+  expect(enabled(calls)).toEqual([true])
+})
+
+test('a session you never type in is left alone', async ($, on) => {
+  const clock = mock.clock(on, { now: 1000 })
+  const calls = app(on)
+  await turn($ as never, 'plugin')
+  await clock.advance(2 * DAY)
+  expect(calls).toEqual([])
+})

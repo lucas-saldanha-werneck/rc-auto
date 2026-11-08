@@ -1,6 +1,6 @@
 {
   "name": "rc-auto",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Turns Remote Control on for a desktop-app session when you type in it, and off again after 24 hours without a message from you.",
   "author": {
     "name": "Lucas Saldanha Werneck",

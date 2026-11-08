@@ -47,8 +47,12 @@ sessions.
 
 ## Keep a session on
 
-Some sessions never get a typed message, for example one that only receives messages from another
-tool. The 24-hour rule would switch those off. To keep them on, list their ids in
+rc-auto only switches off sessions it switched on, and it switches a session on only after a
+message you typed. A session you never type in is outside its rule: if the desktop setting or
+another tool connected it, rc-auto leaves it connected, and you need nothing here to keep it on.
+
+The keep-on file is for a session you did type in but want to keep on past 24 idle hours, for
+example one that afterwards only receives messages from another tool. List its id in
 `~/.claude/rc-auto-keep-on.json` (or `$CLAUDE_CONFIG_DIR/rc-auto-keep-on.json` if you set
 `CLAUDE_CONFIG_DIR`):
 
@@ -69,12 +73,15 @@ The desktop app gives its sessions a tool that switches Remote Control on or off
 (`mcp__ccd_session_mgmt__set_remote_control`). The mod is one hooks module
 (`hooks/register.ts`):
 
-- A `prompt.submit` hook notes when a prompt came from you (origin `composer` or `bridge`).
-- A `turn.complete` hook then records the time and calls the tool with `enabled: true`. It waits
-  for the end of the turn because the app's switch needs a session that has run a turn.
+- A `prompt.submit` hook notes when a prompt came from you (origin `composer` or `bridge`),
+  records the time, and restarts the 24 hours from that moment.
+- A `turn.complete` hook then calls the tool with `enabled: true`. It waits for the end of the
+  turn because the app's switch needs a session that has run a turn.
 - A timer calls the tool with `enabled: false` once 24 hours pass with no new message from you.
   The time is stored in the mod's state, and at session start rc-auto reads it and sets the
   timer again.
+- If the switch-off fails, rc-auto tries again after 5 minutes, then 10, 20 and 40, then every
+  hour, until it works or you send a new message. `/rc-auto` shows the last error meanwhile.
 
 Sessions without that tool (terminal sessions, for example) are left alone.
 

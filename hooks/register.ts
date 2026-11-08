@@ -8,6 +8,10 @@ import type { RcState } from '../types'
 // The switch is the desktop app's own tool, so this acts only in the app.
 
 const IDLE_MS = 24 * 60 * 60 * 1000
+// A failed switch-off is tried again after 5 minutes, then 10, 20, 40, and
+// every hour after that, for as long as the session stays idle.
+const RETRY_FIRST_MS = 5 * 60 * 1000
+const RETRY_MAX_MS = 60 * 60 * 1000
 const RC_TOOL = 'mcp__ccd_session_mgmt__set_remote_control'
 
 const lastTypedAt = atom({ plugin: 'rc-auto', key: 'lastTypedAt' } as const, 0)
@@ -20,9 +24,9 @@ let offTimer: { cancel: () => void } | undefined
 const hasTool = async ($: EngineInterface): Promise<boolean> =>
   (await $.tool.list()).some(t => t.name === RC_TOOL)
 
-// Optional: sessions that never get a typed message (for example one that
-// only receives messages from another tool) would be switched off by the idle
-// rule. List them in this file to keep their Remote Control on:
+// rc-auto only switches off sessions it switched on (after a typed message).
+// Optional: to keep one of those on past 24 idle hours (for example one that
+// afterwards only receives messages from another tool), list it in this file:
 //   { "session_ids": ["<desktop session id>"] }  or  { "local_id": "<id>" }
 // The id is the session's CLAUDE_CODE_HOST_SESSION_ID. No file: no exceptions.
 const keepOnFile = async ($: EngineInterface): Promise<string | undefined> => {
@@ -46,9 +50,11 @@ const keepOn = async ($: EngineInterface): Promise<boolean> => {
   }
 }
 
-const setRc = async ($: EngineInterface, enabled: boolean): Promise<void> => {
-  if (!(await hasTool($))) return
-  if (!enabled && (await keepOn($))) return
+// True when there is nothing left to do: the switch worked, or there is no
+// switch, or the session is on the keep-on list. False when the switch failed.
+const setRc = async ($: EngineInterface, enabled: boolean): Promise<boolean> => {
+  if (!(await hasTool($))) return true
+  if (!enabled && (await keepOn($))) return true
   try {
     const ran = await $.tool.call({ tool: RC_TOOL, session_id: 'self', enabled } as never)
     if ('deny' in ran && ran.deny !== undefined) throw new Error(ran.deny)
@@ -56,23 +62,34 @@ const setRc = async ($: EngineInterface, enabled: boolean): Promise<void> => {
     const state: RcState = enabled ? 'on' : 'off'
     await update($, rc, () => state)
     await update($, lastError, () => '')
+    return true
   } catch (err) {
     await update($, lastError, () => String(err instanceof Error ? err.message : err).slice(0, 300))
+    return false
   }
+}
+
+// Switches off if the session is still idle and still on; if the switch
+// fails, tries again later. A new typed message cancels the retry.
+const tryOff = async ($: EngineInterface, attempt: number): Promise<void> => {
+  const since = (await $.clock.now()) - (await read($, lastTypedAt))
+  if (since < IDLE_MS || (await read($, rc)) !== 'on') return
+  if (await setRc($, false)) return
+  const wait = Math.min(RETRY_FIRST_MS * 2 ** attempt, RETRY_MAX_MS)
+  offTimer = $.clock.after(wait, () => {
+    void tryOff($, attempt + 1).catch(() => undefined)
+  })
 }
 
 const armOff = async ($: EngineInterface): Promise<void> => {
   offTimer?.cancel()
   const left = (await read($, lastTypedAt)) + IDLE_MS - (await $.clock.now())
   if (left <= 0) {
-    if ((await read($, rc)) === 'on') await setRc($, false)
+    await tryOff($, 0)
     return
   }
   offTimer = $.clock.after(left, () => {
-    void (async () => {
-      const since = (await $.clock.now()) - (await read($, lastTypedAt))
-      if (since >= IDLE_MS && (await read($, rc)) === 'on') await setRc($, false)
-    })()
+    void tryOff($, 0).catch(() => undefined)
   })
 }
 
@@ -84,9 +101,16 @@ export const register: Register = on => {
   })
 
   // Typed in the prompt box (composer) or sent from another device (bridge).
+  // The 24 hours count from the message, so a turn that is still running
+  // is never cut off by the old deadline.
   on('prompt.submit', async ($, e, next) => {
     const kind = e.origin?.kind
-    if (kind === 'composer' || kind === 'bridge') typedThisTurn = true
+    if (kind === 'composer' || kind === 'bridge') {
+      typedThisTurn = true
+      const now = await $.clock.now()
+      await update($, lastTypedAt, () => now)
+      await armOff($)
+    }
     return next(e)
   }).catch(($, e, next) => next(e))
 
@@ -95,8 +119,6 @@ export const register: Register = on => {
     const ran = await next(e)
     if (!typedThisTurn) return ran
     typedThisTurn = false
-    const now = await $.clock.now()
-    await update($, lastTypedAt, () => now)
     if ((await read($, rc)) !== 'on') await setRc($, true)
     await armOff($)
     return ran
