@@ -2,6 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { RcState } from '../types'
+import { CONFIG_EXAMPLE } from './config-example'
 
 // When you type in this session (at the desk or from your phone), turn
 // Remote Control on; after IDLE_MS with no message from you, turn it off.
@@ -31,7 +32,8 @@ const hasTool = async ($: EngineInterface): Promise<boolean> =>
 // The id is the session's CLAUDE_CODE_HOST_SESSION_ID. The files read are:
 //   - ~/.claude/rc-auto-keep-on.json (or $CLAUDE_CONFIG_DIR/rc-auto-keep-on.json)
 //   - each path in "keep_on_files" of your settings file,
-//     ~/.config/rc-auto/config.json (or $XDG_CONFIG_HOME/rc-auto/config.json)
+//     ~/.config/rc-auto/config.json (or $XDG_CONFIG_HOME/rc-auto/config.json),
+//     which the first session creates with the defaults (see seedSettings)
 //   - each path in the plugin's keep_on_files option (/config, userConfig)
 // No file: no exceptions. A missing or unreadable file is skipped.
 let optionFiles: readonly string[] = []
@@ -60,20 +62,42 @@ const readJson = async ($: EngineInterface, file: string): Promise<Record<string
   }
 }
 
+// Your settings file: $XDG_CONFIG_HOME/rc-auto/config.json, else ~/.config/rc-auto/config.json.
+const settingsFile = async ($: EngineInterface, h: string | undefined): Promise<string | undefined> => {
+  const xdg = await $.env.get('XDG_CONFIG_HOME')
+  const base = xdg !== undefined && xdg !== '' ? xdg : h !== undefined ? `${h}/.config` : undefined
+  return base === undefined ? undefined : `${base}/rc-auto/config.json`
+}
+
 const keepOnFiles = async ($: EngineInterface): Promise<string[]> => {
   const h = await home($)
   const dir = await $.env.get('CLAUDE_CONFIG_DIR')
   const files: (string | undefined)[] = [
     dir !== undefined && dir !== '' ? `${dir}/rc-auto-keep-on.json` : h !== undefined ? `${h}/.claude/rc-auto-keep-on.json` : undefined,
   ]
-  const xdg = await $.env.get('XDG_CONFIG_HOME')
-  const base = xdg !== undefined && xdg !== '' ? xdg : h !== undefined ? `${h}/.config` : undefined
-  if (base !== undefined) {
-    const settings = await readJson($, `${base}/rc-auto/config.json`)
+  const settingsPath = await settingsFile($, h)
+  if (settingsPath !== undefined) {
+    const settings = await readJson($, settingsPath)
     files.push(...paths(settings?.keep_on_files).map(p => expand(p, h)))
   }
   files.push(...optionFiles.map(p => expand(p, h)))
   return [...new Set(files.filter((f): f is string => f !== undefined))]
+}
+
+// POSIX /x, Windows C:\x or C:/x. A relative path would land in the session's folder.
+const isAbsolute = (p: string): boolean => p.startsWith('/') || /^[A-Za-z]:[\\/]/.test(p)
+
+// First session after install: create your settings file from CONFIG_EXAMPLE
+// when there is none. A file that is there is never rewritten, and any error
+// (no home folder, read-only folder, a refused write) is ignored.
+const seedSettings = async ($: EngineInterface): Promise<void> => {
+  try {
+    const file = await settingsFile($, await home($))
+    if (file === undefined || !isAbsolute(file) || (await $.fs.exists(file))) return
+    await $.fs.write(file, CONFIG_EXAMPLE)
+  } catch {
+    // never get in the way of starting a session
+  }
 }
 
 const keepOn = async ($: EngineInterface): Promise<boolean> => {
@@ -138,6 +162,7 @@ const armOff = async ($: EngineInterface): Promise<void> => {
 export const register: Register = (on, options) => {
   optionFiles = paths(options?.keep_on_files)
   on('session.start', async ($, e, next) => {
+    await seedSettings($)
     await $.command.register({ name: 'rc-auto', description: 'Show what rc-auto did with Remote Control' })
     if ((await read($, lastTypedAt)) > 0) await armOff($)
     return next(e)

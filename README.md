@@ -89,6 +89,11 @@ copying the id. Your settings live outside the plugin, so plugin updates never t
 A session stays on when any of the files lists it. A file that is missing or does not parse is
 skipped. `/rc-auto` shows which files it reads. There are no other settings.
 
+You don't have to create the settings file: the first session after you install rc-auto creates
+it with the defaults (`"keep_on_files": []`, which changes nothing) and a `_doc` note on each
+key. The text comes from [`hooks/config-example.ts`](hooks/config-example.ts). If the file is
+already there, rc-auto never rewrites it, and updates never touch it.
+
 ## How it works
 
 The desktop app gives its sessions a tool that switches Remote Control on or off
@@ -104,6 +109,9 @@ The desktop app gives its sessions a tool that switches Remote Control on or off
   timer again.
 - If the switch-off fails, rc-auto tries again after 5 minutes, then 10, 20 and 40, then every
   hour, until it works or you send a new message. `/rc-auto` shows the last error meanwhile.
+
+- At session start, if your settings file is missing, rc-auto writes the starter one (see
+  [Your settings](#your-settings)). It checks first and never writes over a file that is there.
 
 Sessions without that tool (terminal sessions, for example) are left alone.
 
