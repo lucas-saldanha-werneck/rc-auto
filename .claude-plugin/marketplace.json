@@ -1,0 +1,15 @@
+{
+  "name": "rc-auto",
+  "description": "Remote Control on when you type in a desktop-app session, off after 24 hours idle.",
+  "owner": {
+    "name": "Lucas Saldanha Werneck",
+    "url": "https://github.com/lucas-saldanha-werneck"
+  },
+  "plugins": [
+    {
+      "name": "rc-auto",
+      "source": "./",
+      "description": "Turns Remote Control on for a desktop-app session when you type in it, and off again after 24 hours without a message from you."
+    }
+  ]
+}

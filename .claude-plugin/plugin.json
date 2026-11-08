@@ -1,0 +1,14 @@
+{
+  "name": "rc-auto",
+  "version": "0.1.0",
+  "description": "Turns Remote Control on for a desktop-app session when you type in it, and off again after 24 hours without a message from you.",
+  "author": {
+    "name": "Lucas Saldanha Werneck",
+    "url": "https://github.com/lucas-saldanha-werneck"
+  },
+  "homepage": "https://github.com/lucas-saldanha-werneck/rc-auto",
+  "repository": "https://github.com/lucas-saldanha-werneck/rc-auto",
+  "license": "MIT",
+  "keywords": ["mod", "remote-control", "desktop"],
+  "types": "./types/index.d.ts"
+}
