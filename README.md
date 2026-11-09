@@ -31,15 +31,15 @@ If the switch failed, a last line `Last error: <message>` follows.
 From a shell:
 
 ```
-claude plugin marketplace add lucas-saldanha-werneck/rc-auto
-claude plugin install rc-auto@rc-auto
+claude plugin marketplace add lucas-saldanha-werneck/claude-plugins
+claude plugin install rc-auto@lucas-plugins
 ```
 
 Or at the prompt of a terminal Claude Code session:
 
 ```
-/plugin marketplace add lucas-saldanha-werneck/rc-auto
-/plugin install rc-auto@rc-auto
+/plugin marketplace add lucas-saldanha-werneck/claude-plugins
+/plugin install rc-auto@lucas-plugins
 ```
 
 Install with the user scope (the default) so the mod also loads in the desktop app's local Code
@@ -66,7 +66,7 @@ own session id there. The id is the session's `CLAUDE_CODE_HOST_SESSION_ID` envi
 Without the file, or if it does not parse, every session follows the 24-hour rule. rc-auto only
 skips the switch-off for listed sessions; it still switches them on when you type.
 
-## Your settings
+## Settings
 
 If another tool already writes its session id to a file of its own (in the same
 `{"local_id": ...}` or `{"session_ids": [...]}` shape), point rc-auto at that file instead of
@@ -111,20 +111,19 @@ The desktop app gives its sessions a tool that switches Remote Control on or off
   hour, until it works or you send a new message. `/rc-auto` shows the last error meanwhile.
 
 - At session start, if your settings file is missing, rc-auto writes the starter one (see
-  [Your settings](#your-settings)). It checks first and never writes over a file that is there.
+  [Settings](#settings)). It checks first and never writes over a file that is there.
 
 Sessions without that tool (terminal sessions, for example) are left alone.
 
 ## Uninstall
 
 ```
-claude plugin uninstall rc-auto@rc-auto
-claude plugin marketplace remove rc-auto
+claude plugin uninstall rc-auto@lucas-plugins
 ```
 
 At a terminal session's prompt, use `/plugin` in place of `claude plugin`.
 
-## Limits and what was not tested
+## Limits
 
 - Built and tested on Claude Code 2.1.319. It needs a version with mods (hooks modules).
 - The tests use a fake desktop app (`claude plugin test .`). The switch tool is not in the public
