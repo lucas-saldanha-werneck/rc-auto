@@ -31,14 +31,14 @@ If the switch failed, a last line `Last error: <message>` follows.
 From a shell:
 
 ```
-claude plugin marketplace add lucas-saldanha-werneck/claude-plugins
+claude plugin marketplace add lucas-saldanha-werneck/lucas-tools
 claude plugin install rc-auto@lucas-tools
 ```
 
 Or at the prompt of a terminal Claude Code session:
 
 ```
-/plugin marketplace add lucas-saldanha-werneck/claude-plugins
+/plugin marketplace add lucas-saldanha-werneck/lucas-tools
 /plugin install rc-auto@lucas-tools
 ```
 
