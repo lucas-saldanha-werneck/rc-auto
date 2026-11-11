@@ -32,14 +32,14 @@ From a shell:
 
 ```
 claude plugin marketplace add lucas-saldanha-werneck/claude-plugins
-claude plugin install rc-auto@lucas-plugins
+claude plugin install rc-auto@lucas-tools
 ```
 
 Or at the prompt of a terminal Claude Code session:
 
 ```
 /plugin marketplace add lucas-saldanha-werneck/claude-plugins
-/plugin install rc-auto@lucas-plugins
+/plugin install rc-auto@lucas-tools
 ```
 
 Install with the user scope (the default) so the mod also loads in the desktop app's local Code
@@ -118,7 +118,7 @@ Sessions without that tool (terminal sessions, for example) are left alone.
 ## Uninstall
 
 ```
-claude plugin uninstall rc-auto@lucas-plugins
+claude plugin uninstall rc-auto@lucas-tools
 ```
 
 At a terminal session's prompt, use `/plugin` in place of `claude plugin`.
