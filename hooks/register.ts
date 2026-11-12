@@ -22,6 +22,67 @@ const lastError = atom({ plugin: 'rc-auto', key: 'lastError' } as const, '')
 let typedThisTurn = false
 let offTimer: { cancel: () => void } | undefined
 
+// $.state is gone when the app or the Mac restarts, but the app turns Remote
+// Control back on for the sessions that had it on. The time of your last message
+// and what rc-auto set are therefore kept in $.store too (one file shared by every
+// session), under session:<id>, and read back at session start.
+const SAVED_TTL_MS = 30 * IDLE_MS
+type SavedSession = { lastTypedAt: number; rc: RcState; at: number }
+
+const sessionKey = async ($: EngineInterface): Promise<string | undefined> => {
+  try {
+    const host = await $.env.get('CLAUDE_CODE_HOST_SESSION_ID')
+    if (host !== undefined && host !== '') return `session:${host}`
+    const id = await $.session.id()
+    return id !== undefined && id !== '' ? `session:${id}` : undefined
+  } catch {
+    return undefined
+  }
+}
+
+const persist = async ($: EngineInterface): Promise<void> => {
+  try {
+    const key = await sessionKey($)
+    if (key === undefined) return
+    const state = await read($, rc)
+    // Only a session rc-auto switched on has a deadline to keep; switched off
+    // (or never on, as in a terminal), nothing is left to do for it.
+    if (state !== 'on') {
+      if ((await $.store.get(key)) !== undefined) await $.store.delete(key)
+      return
+    }
+    const saved: SavedSession = { lastTypedAt: await read($, lastTypedAt), rc: state, at: await $.clock.now() }
+    await $.store.set(key, saved)
+  } catch {
+    // The deadline still holds for as long as this process runs.
+  }
+}
+
+// Session start: bring back what the store holds for this session, and drop
+// records of sessions not seen for 30 days.
+const restore = async ($: EngineInterface): Promise<void> => {
+  try {
+    const key = await sessionKey($)
+    if (key === undefined) return
+    const now = await $.clock.now()
+    for (const k of await $.store.keys()) {
+      if (!k.startsWith('session:') || k === key) continue
+      const v = (await $.store.get(k)) as Partial<SavedSession> | undefined
+      if (v === undefined || v === null || typeof v !== 'object' || !(Number(v.at) > now - SAVED_TTL_MS)) await $.store.delete(k)
+    }
+    if ((await read($, lastTypedAt)) > 0) return
+    const v = (await $.store.get(key)) as Partial<SavedSession> | undefined
+    if (v === undefined || v === null || typeof v !== 'object') return
+    const typed = Number(v.lastTypedAt)
+    if (!Number.isFinite(typed) || typed <= 0) return
+    await update($, lastTypedAt, () => typed)
+    const state: RcState = v.rc === 'on' || v.rc === 'off' ? v.rc : 'unknown'
+    await update($, rc, () => state)
+  } catch {
+    // Start without it: the next message from you sets the deadline again.
+  }
+}
+
 const hasTool = async ($: EngineInterface): Promise<boolean> =>
   (await $.tool.list()).some(t => t.name === RC_TOOL)
 
@@ -121,35 +182,63 @@ const keepOn = async ($: EngineInterface): Promise<boolean> => {
   }
 }
 
-// True when there is nothing left to do: the switch worked, or there is no
-// switch, or the session is on the keep-on list. False when the switch failed.
+const idle = async ($: EngineInterface): Promise<boolean> =>
+  (await $.clock.now()) - (await read($, lastTypedAt)) >= IDLE_MS
+
+// True when there is nothing left to do: the switch worked, or (switching on)
+// there is no switch, or (switching off) a message came in meanwhile. False when
+// it failed, including a switch tool missing or a tool list that failed at
+// switch-off time: rc-auto turned it on, so it keeps trying to turn it off.
 const setRc = async ($: EngineInterface, enabled: boolean): Promise<boolean> => {
-  if (!(await hasTool($))) return true
-  if (!enabled && (await keepOn($))) return true
   try {
+    if (!(await hasTool($))) {
+      if (enabled) return true
+      throw new Error('the Remote Control switch tool is not listed right now')
+    }
+    // A message that came in while this ran wins: never switch off under it.
+    if (!enabled && !(await idle($))) return true
     const ran = await $.tool.call({ tool: RC_TOOL, session_id: 'self', enabled } as never)
     if ('deny' in ran && ran.deny !== undefined) throw new Error(ran.deny)
     if (ran.isError === true) throw new Error(String(ran.text ?? 'error'))
     const state: RcState = enabled ? 'on' : 'off'
     await update($, rc, () => state)
     await update($, lastError, () => '')
+    await persist($)
     return true
   } catch (err) {
-    await update($, lastError, () => String(err instanceof Error ? err.message : err).slice(0, 300))
+    try {
+      await update($, lastError, () => String(err instanceof Error ? err.message : err).slice(0, 300))
+    } catch {
+      // nothing more to record
+    }
     return false
   }
 }
 
-// Switches off if the session is still idle and still on; if the switch
-// fails, tries again later. A new typed message cancels the retry.
-const tryOff = async ($: EngineInterface, attempt: number): Promise<void> => {
-  const since = (await $.clock.now()) - (await read($, lastTypedAt))
-  if (since < IDLE_MS || (await read($, rc)) !== 'on') return
-  if (await setRc($, false)) return
-  const wait = Math.min(RETRY_FIRST_MS * 2 ** attempt, RETRY_MAX_MS)
+const later = ($: EngineInterface, wait: number, attempt: number): void => {
+  offTimer?.cancel()
   offTimer = $.clock.after(wait, () => {
-    void tryOff($, attempt + 1).catch(() => undefined)
+    void tryOff($, attempt).catch(() => undefined)
   })
+}
+
+// Switches off if the session is still idle and still on; if the switch
+// fails, tries again later. A new typed message cancels the retry. A session
+// on the keep-on list is looked at again every hour, so taking it off the list
+// lets it switch off.
+const tryOff = async ($: EngineInterface, attempt: number): Promise<void> => {
+  let done = false
+  try {
+    if (!(await idle($)) || (await read($, rc)) !== 'on') return
+    if (await keepOn($)) {
+      later($, RETRY_MAX_MS, 0)
+      return
+    }
+    done = await setRc($, false)
+  } catch {
+    done = false
+  }
+  if (!done) later($, Math.min(RETRY_FIRST_MS * 2 ** attempt, RETRY_MAX_MS), attempt + 1)
 }
 
 const armOff = async ($: EngineInterface): Promise<void> => {
@@ -169,6 +258,7 @@ export const register: Register = (on, options) => {
   on('session.start', async ($, e, next) => {
     await seedSettings($)
     await $.command.register({ name: 'rc-auto', description: 'Show what rc-auto did with Remote Control' })
+    await restore($)
     if ((await read($, lastTypedAt)) > 0) await armOff($)
     return next(e)
   })
@@ -178,21 +268,30 @@ export const register: Register = (on, options) => {
   // is never cut off by the old deadline.
   on('prompt.submit', async ($, e, next) => {
     const kind = e.origin?.kind
-    if (kind === 'composer' || kind === 'bridge') {
+    const typed = kind === 'composer' || kind === 'bridge'
+    if (typed) {
       typedThisTurn = true
       const now = await $.clock.now()
       await update($, lastTypedAt, () => now)
+      await persist($)
       await armOff($)
     }
-    return next(e)
+    const result = await next(e)
+    // Dropped (a hook blocked it): no turn of yours follows, so a later turn
+    // started by a plugin must not take the flag.
+    if (typed && result.drop !== undefined) typedThisTurn = false
+    return result
   }).catch(($, e, next) => next(e))
 
   // After the turn: the app's switch needs a session that has run a turn.
+  // Switched on after every message of yours, even when rc-auto set it on
+  // before: you may have turned it off by hand, and the app leaves a switch
+  // that is already on as it is ("no_change").
   on('turn.complete', async ($, e, next) => {
     const ran = await next(e)
-    if (!typedThisTurn) return ran
+    if (!typedThisTurn || e.agentId !== undefined) return ran
     typedThisTurn = false
-    if ((await read($, rc)) !== 'on') await setRc($, true)
+    await setRc($, true)
     await armOff($)
     return ran
   }).catch(($, e, next) => next(e))

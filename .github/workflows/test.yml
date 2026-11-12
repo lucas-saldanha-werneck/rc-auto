@@ -16,5 +16,6 @@ jobs:
         with:
           node-version: '22'
       - uses: oven-sh/setup-bun@v2
-      - run: npm i -g @anthropic-ai/claude-code
+      # pinned: a new Claude Code release must not change the result without a commit here
+      - run: npm i -g @anthropic-ai/claude-code@2.1.322
       - run: claude plugin validate . && claude plugin test .

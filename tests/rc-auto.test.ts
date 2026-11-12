@@ -68,9 +68,10 @@ test('a new typed message restarts the 24 hours', async ($, on) => {
   await clock.advance(DAY - 10)
   await turn($ as never, 'composer')
   await clock.advance(DAY - 10)
-  expect(enabled(calls)).toEqual([true])
+  // Each message of yours switches it on (a no-op in the app when it is on already).
+  expect(enabled(calls)).toEqual([true, true])
   await clock.advance(10)
-  expect(enabled(calls)).toEqual([true, false])
+  expect(enabled(calls)).toEqual([true, true, false])
 })
 
 test('does nothing outside the desktop app', async ($, on) => {
@@ -411,4 +412,171 @@ test('with the starter file the /config keep_on_files option still applies', { o
   const seeded = await dayWith($ as never, on, CONFIG_EXAMPLE)
   expect(noFileWithOption).toBeDefined()
   expect(seeded).toEqual(noFileWithOption)
+})
+
+// ---- audit round 2
+
+// A plugin store the test can see (it outlives a restart: the app reads it back).
+const store = (on: On, kept: Record<string, unknown> = {}): Record<string, unknown> => {
+  on('store.get', async (_$, e) => ({ value: kept[(e as { key: string }).key] }) as never)
+  on('store.set', async (_$, e) => {
+    const one = e as { key: string; value: unknown }
+    kept[one.key] = JSON.parse(JSON.stringify(one.value))
+    return { value: undefined } as never
+  })
+  on('store.delete', async (_$, e) => {
+    delete kept[(e as { key: string }).key]
+    return { value: undefined } as never
+  })
+  on('store.keys', async () => ({ value: Object.keys(kept) }) as never)
+  return kept
+}
+
+test('RA-06 the 24 hours survive an app restart (time and state kept in the store)', async ($, on) => {
+  const clock = mock.clock(on, { now: 1000 })
+  mock.env(on, { HOME: '/home/u', CLAUDE_CODE_HOST_SESSION_ID: 'local_abc' })
+  const kept = store(on)
+  disk(on)
+  const calls = app(on)
+  await start($ as never)
+  await turn($ as never, 'composer')
+  expect(enabled(calls)).toEqual([true])
+  const saved = Object.values(kept).find(v => (v as { rc?: string }).rc === 'on') as { lastTypedAt: number; rc: string }
+  expect(saved.lastTypedAt).toBe(1000)
+  await clock.advance(DAY)
+  expect(enabled(calls)).toEqual([true, false])
+})
+
+test('RA-06 after a restart (fresh state) the saved deadline still turns it off', async ($, on) => {
+  const clock = mock.clock(on, { now: 1000 + DAY - 60_000 })
+  mock.env(on, { HOME: '/home/u', CLAUDE_CODE_HOST_SESSION_ID: 'local_abc' })
+  store(on, { 'session:local_abc': { lastTypedAt: 1000, rc: 'on', at: 1000 } })
+  disk(on)
+  const calls = app(on)
+  await start($ as never)
+  expect(calls).toEqual([])
+  await clock.advance(60_000)
+  expect(enabled(calls)).toEqual([false])
+})
+
+test('RA-01 the switch tool missing at switch-off time is tried again', async ($, on) => {
+  const clock = mock.clock(on, { now: 1000 })
+  let listed = true
+  const calls: boolean[] = []
+  on('tool.list', async () => ({ value: listed ? [{ name: RC_TOOL }] : [] }) as never)
+  on('tool.call', async (_$, e) => {
+    calls.push((e as { enabled: boolean }).enabled)
+    return { result: 'ok', text: 'ok' } as never
+  })
+  on('prompt.submit', async (_$, e) => ({ text: e.text }))
+  on('turn.complete', async () => ({ text: '' }) as never)
+  await turn($ as never, 'composer')
+  listed = false
+  await clock.advance(DAY)
+  expect(calls).toEqual([true])
+  listed = true
+  await clock.advance(60 * 60 * 1000)
+  expect(calls).toEqual([true, false])
+})
+
+test('RA-02 an error listing the tools at switch-off time is tried again', async ($, on) => {
+  const clock = mock.clock(on, { now: 1000 })
+  let broken = false
+  const calls: boolean[] = []
+  on('tool.list', async () => {
+    if (broken) throw new Error('tool list unavailable')
+    return { value: [{ name: RC_TOOL }] } as never
+  })
+  on('tool.call', async (_$, e) => {
+    calls.push((e as { enabled: boolean }).enabled)
+    return { result: 'ok', text: 'ok' } as never
+  })
+  on('prompt.submit', async (_$, e) => ({ text: e.text }))
+  on('turn.complete', async () => ({ text: '' }) as never)
+  await turn($ as never, 'composer')
+  broken = true
+  await clock.advance(DAY)
+  expect(calls).toEqual([true])
+  broken = false
+  await clock.advance(60 * 60 * 1000)
+  expect(calls).toEqual([true, false])
+})
+
+test('RA-03 a message that arrives while the switch-off is under way stops it', async ($, on) => {
+  const clock = mock.clock(on, { now: 1000 })
+  const calls: boolean[] = []
+  let gate: Promise<void> | undefined
+  let release: () => void = () => {}
+  let reached = false
+  on('tool.list', async () => {
+    if (gate !== undefined) {
+      reached = true
+      await gate
+    }
+    return { value: [{ name: RC_TOOL }] } as never
+  })
+  on('tool.call', async (_$, e) => {
+    calls.push((e as { enabled: boolean }).enabled)
+    return { result: 'ok', text: 'ok' } as never
+  })
+  on('prompt.submit', async (_$, e) => ({ text: e.text }))
+  on('turn.complete', async () => ({ text: '' }) as never)
+  await turn($ as never, 'composer')
+  gate = new Promise<void>(r => (release = r))
+  await clock.advance(DAY)
+  for (let k = 0; k < 200 && !reached; k++) await Promise.resolve()
+  expect(reached).toBe(true)
+  // The switch-off is waiting on the tool list; a message from the phone comes in now.
+  gate = undefined
+  const s = $ as never as { prompt: { submit: (e: never) => Promise<unknown> } }
+  await s.prompt.submit({ text: 'hi', origin: { kind: 'bridge' } } as never)
+  release()
+  for (let k = 0; k < 200; k++) await Promise.resolve()
+  expect(calls).toEqual([true])
+})
+
+test('RA-04 a session taken off the keep-on list is switched off later', async ($, on) => {
+  const clock = mock.clock(on, { now: 1000 })
+  mock.env(on, { HOME: '/home/u', CLAUDE_CODE_HOST_SESSION_ID: 'abc' })
+  let listed = true
+  on('fs.read', async (_$, e) => {
+    const path = posix((e as { path: string }).path)
+    if (path === '/home/u/.claude/rc-auto-keep-on.json' && listed) return { value: JSON.stringify({ local_id: 'abc' }) } as never
+    throw new Error('ENOENT')
+  })
+  const calls = app(on)
+  await turn($ as never, 'composer')
+  await clock.advance(DAY)
+  expect(enabled(calls)).toEqual([true])
+  listed = false
+  await clock.advance(60 * 60 * 1000)
+  expect(enabled(calls)).toEqual([true, false])
+})
+
+test('RA-09 a typed message turns Remote Control on again even when rc-auto thinks it is on', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  const calls = app(on)
+  await turn($ as never, 'composer')
+  // Turned off by hand in the app meanwhile; the next message from you turns it on again.
+  await turn($ as never, 'composer')
+  expect(enabled(calls)).toEqual([true, true])
+})
+
+test('RA-07 a typed prompt that is dropped does not turn Remote Control on at a later turn', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  const calls: unknown[] = []
+  let drop = true
+  on('tool.list', async () => ({ value: [{ name: RC_TOOL }] }) as never)
+  on('tool.call', async (_$, e) => {
+    calls.push(e)
+    return { result: 'ok', text: 'ok' } as never
+  })
+  on('prompt.submit', async (_$, e) => (drop ? { drop: 'blocked' } : { text: e.text }) as never)
+  on('turn.complete', async () => ({ text: '' }) as never)
+  const s = $ as never as { prompt: { submit: (e: never) => Promise<unknown> }; turn: { complete: (e: never) => Promise<unknown> } }
+  await s.prompt.submit({ text: 'hello', origin: { kind: 'composer' } } as never)
+  drop = false
+  await s.prompt.submit({ text: 'from a plugin', origin: { kind: 'plugin' } } as never)
+  await s.turn.complete({ answer: 'done', text: '' } as never)
+  expect(calls).toEqual([])
 })
