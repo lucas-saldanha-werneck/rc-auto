@@ -13,8 +13,9 @@ sessions you type in, and disconnects each one a day after your last message.
 ## What you see
 
 Nothing, most of the time. After a turn that started with a message you typed (in the prompt box,
-or sent from another device through Remote Control), rc-auto switches Remote Control on if it is
-not on already. 24 hours after your last such message, it switches it off.
+or sent from another device through Remote Control), rc-auto switches Remote Control on (the app
+leaves it as it is when it is on already, so one you turned off by hand comes back on with your
+next message). 24 hours after your last such message, it switches it off.
 
 `/rc-auto` shows what it did. Output from a test run:
 
@@ -103,12 +104,19 @@ The desktop app gives its sessions a tool that switches Remote Control on or off
 - A `prompt.submit` hook notes when a prompt came from you (origin `composer` or `bridge`),
   records the time, and restarts the 24 hours from that moment.
 - A `turn.complete` hook then calls the tool with `enabled: true`. It waits for the end of the
-  turn because the app's switch needs a session that has run a turn.
+  turn because the app's switch needs a session that has run a turn. A prompt that a hook drops
+  starts no turn, so it switches nothing on.
 - A timer calls the tool with `enabled: false` once 24 hours pass with no new message from you.
-  The time is stored in the mod's state, and at session start rc-auto reads it and sets the
-  timer again.
-- If the switch-off fails, rc-auto tries again after 5 minutes, then 10, 20 and 40, then every
-  hour, until it works or you send a new message. `/rc-auto` shows the last error meanwhile.
+  Just before the call it checks again that no message came in meanwhile.
+- The time and what rc-auto set are kept in the mod's state and, while Remote Control is on, in
+  the plugin store too (`session:<desktop session id>`), because the state is gone after the app
+  or the computer restarts while the app turns Remote Control back on for those sessions. At
+  session start rc-auto reads them back and sets the timer again. Records of sessions not seen
+  for 30 days are removed.
+- If the switch-off fails (an error, the switch tool not listed for a moment, or the tool list
+  failing), rc-auto tries again after 5 minutes, then 10, 20 and 40, then every hour, until it
+  works or you send a new message. `/rc-auto` shows the last error meanwhile. A session on a
+  keep-on list is looked at again every hour, so taking it off the list lets it switch off.
 
 - At session start, if your settings file is missing, rc-auto writes the starter one (see
   [Settings](#settings)). It checks first and never writes over a file that is there.
@@ -125,13 +133,13 @@ At a terminal session's prompt, use `/plugin` in place of `claude plugin`.
 
 ## Limits
 
-- Built and tested on Claude Code 2.1.319. It needs a version with mods (hooks modules).
+- Built and tested on Claude Code 2.1.322 (the version CI installs). It needs a version with mods (hooks modules).
 - The tests use a fake desktop app (`claude plugin test .`). The switch tool is not in the public
   docs, so its name may change in a future app version. If it does, `/rc-auto` shows
   `Desktop app: no` and the mod does nothing.
-- rc-auto only knows what it set. If you turn Remote Control off by hand, rc-auto still thinks it
-  is on and does not turn it back on when you type, until its own 24-hour switch-off has run. It
-  switches off only sessions it turned on.
+- rc-auto switches off only sessions it turned on.
+- Two sessions starting at the very same moment on the first run could both write the starter
+  settings file: the plugin file API has no create-only write. Both write the same starter text.
 - Not tried by hand for this release. The automated tests run on Linux, macOS and Windows; on
   Linux and Windows nothing else was tried.
 
