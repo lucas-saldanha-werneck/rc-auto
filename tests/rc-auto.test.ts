@@ -364,6 +364,76 @@ test('a relative XDG_CONFIG_HOME is ignored: the settings file under HOME is use
   expect(writes.map(w => w.path)).toEqual(['/home/u/.config/rc-auto/config.json'])
 })
 
+// ---- RA-05: two sessions starting together must not overwrite a file you
+// just created. On POSIX the file is created exclusively by `sh` (noclobber),
+// so an exists-then-write race cannot clobber it.
+
+type Run = { argv: readonly string[]; init?: { stdin?: string } }
+
+// `sh` on the host: `exitCode` is what the exclusive create ends with
+// (0 created, 1 the file is already there); `fail` makes the call reject,
+// like a host with no `sh` or a refused process.run.
+const shell = (on: On, exitCode = 0, fail = false): Run[] => {
+  const runs: Run[] = []
+  on('process.run', async (_$, e) => {
+    runs.push(e as Run)
+    if (fail) throw new Error('ENOENT: sh not found')
+    return { value: { exitCode, stdout: '', stderr: exitCode === 0 ? '' : 'cannot overwrite existing file' } } as never
+  })
+  return runs
+}
+
+test('RA-05 the settings file is created exclusively by sh, with the defaults on stdin', async ($, on) => {
+  mock.env(on, { HOME: '/home/u' })
+  const writes = disk(on)
+  const runs = shell(on, 0)
+  expect(await start($ as never)).toEqual({ cwd: '/work' })
+  expect(runs.length).toBe(1)
+  const [r] = runs
+  expect(r.argv[0]).toBe('sh')
+  expect(r.argv[1]).toBe('-c')
+  expect(r.argv[2]).toContain('set -C')
+  expect(posix(r.argv[r.argv.length - 1])).toBe('/home/u/.config/rc-auto/config.json')
+  expect(r.init?.stdin).toBe(CONFIG_EXAMPLE)
+  expect(writes).toEqual([])
+})
+
+test('RA-05 a file that appeared after the exists check is never overwritten', async ($, on) => {
+  mock.env(on, { HOME: '/home/u' })
+  // exists says no (the other session had not written yet), the exclusive create finds it
+  const writes = disk(on, [])
+  const runs = shell(on, 1)
+  expect(await start($ as never)).toEqual({ cwd: '/work' })
+  expect(runs.length).toBe(1)
+  expect(writes).toEqual([])
+})
+
+test('RA-05 process.run unavailable: falls back to exists-then-write, session still starts', async ($, on) => {
+  mock.env(on, { HOME: '/home/u' })
+  const writes = disk(on)
+  const runs = shell(on, 0, true)
+  expect(await start($ as never)).toEqual({ cwd: '/work' })
+  expect(runs.length).toBe(1)
+  expect(writes).toEqual([{ path: '/home/u/.config/rc-auto/config.json', text: CONFIG_EXAMPLE }])
+})
+
+test('RA-05 process.run unavailable and the file exists: nothing is written', async ($, on) => {
+  mock.env(on, { HOME: '/home/u' })
+  const writes = disk(on, ['/home/u/.config/rc-auto/config.json'])
+  shell(on, 0, true)
+  await start($ as never)
+  expect(writes).toEqual([])
+})
+
+test('RA-05 Windows: no sh is run, the exists-then-write fallback is used', async ($, on) => {
+  mock.env(on, { USERPROFILE: '/profile/u', OS: 'Windows_NT' })
+  const writes = disk(on)
+  const runs = shell(on, 0)
+  expect(await start($ as never)).toEqual({ cwd: '/work' })
+  expect(runs).toEqual([])
+  expect(writes.map(w => w.path)).toEqual(['/profile/u/.config/rc-auto/config.json'])
+})
+
 test('the starter file is valid JSON, every key at its default and documented', async () => {
   const cfg = JSON.parse(CONFIG_EXAMPLE) as Record<string, unknown>
   expect(Object.keys(cfg).sort()).toEqual(['_doc', 'keep_on_files'])

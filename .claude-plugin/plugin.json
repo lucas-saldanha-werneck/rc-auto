@@ -1,6 +1,6 @@
 {
   "name": "rc-auto",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "Turns Remote Control on when you type in a desktop-app session, and off after 24 idle hours.",
   "author": {
     "name": "Lucas Saldanha Werneck",
