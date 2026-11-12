@@ -93,7 +93,9 @@ skipped. `/rc-auto` shows which files it checks. There are no other settings.
 You don't have to create the settings file: the first session after you install rc-auto creates
 it with the defaults (`"keep_on_files": []`, which changes nothing) and a `_doc` note on each
 key. The text comes from [`hooks/config-example.ts`](hooks/config-example.ts). If the file is
-already there, rc-auto never rewrites it, and updates never touch it.
+already there, rc-auto never rewrites it, and updates never touch it. On macOS and Linux the file
+is created exclusively (through `sh`), so two sessions starting together never overwrite a file
+you just made; on Windows it checks first and then writes.
 
 ## How it works
 

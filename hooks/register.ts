@@ -153,13 +153,33 @@ const keepOnFiles = async ($: EngineInterface): Promise<string[]> => {
   return [...new Set(files.filter((f): f is string => f !== undefined && isAbsolute(f)))]
 }
 
+// Creates `$1` with stdin as its content only if it does not exist yet: the
+// shell's noclobber (`set -C`) opens it with O_EXCL, so of two sessions
+// starting together exactly one creates it and the other leaves it alone.
+// Exit 0: created. Nonzero: already there (or the folder cannot be written).
+const CREATE_EXCLUSIVE = 'mkdir -p -- "$(dirname -- "$1")" && set -C && cat > "$1"'
+
 // First session after install: create your settings file from CONFIG_EXAMPLE
 // when there is none. A file that is there is never rewritten, and any error
 // (no home folder, read-only folder, a refused write) is ignored.
+// On POSIX the create is exclusive (CREATE_EXCLUSIVE through `sh`), so a file
+// another session or you created a moment ago is never overwritten. $.fs has
+// no exclusive create, so where `sh` cannot be used (Windows, or process.run
+// refused or missing) it falls back to check-then-write, which two sessions
+// starting at the same instant on the very first run could still race.
 const seedSettings = async ($: EngineInterface): Promise<void> => {
   try {
     const file = await settingsFile($, await home($))
-    if (file === undefined || !isAbsolute(file) || (await $.fs.exists(file))) return
+    if (file === undefined || !isAbsolute(file)) return
+    if ((await $.env.get('OS')) !== 'Windows_NT') {
+      try {
+        await $.process.run(['sh', '-c', CREATE_EXCLUSIVE, 'sh', file], { stdin: CONFIG_EXAMPLE, timeoutMs: 10_000 })
+        return // created, or it is already there: either way nothing more to do
+      } catch {
+        // sh could not start or process.run was refused: fall back below
+      }
+    }
+    if (await $.fs.exists(file)) return
     await $.fs.write(file, CONFIG_EXAMPLE)
   } catch {
     // never get in the way of starting a session
