@@ -27,6 +27,17 @@ Last message from you: 1970-01-01T00:00:01.000Z; off after 24 h without one
 
 If the switch failed, a last line `Last error: <message>` follows.
 
+## Examples
+
+- You open a desktop-app session and type a message. When the turn ends, Remote Control is on for
+  that session, so you can continue it from claude.ai/code or the phone.
+- You send nothing for 24 hours. rc-auto switches Remote Control off for that session. Your next
+  message switches it on again.
+- You type `/rc-auto` to see its state (`Desktop app: yes`, `Remote Control (as set by rc-auto): on`,
+  and the time of your last message, as in the output above).
+- You list a session id in `~/.claude/rc-auto-keep-on.json` (see [Keep a session on](#keep-a-session-on))
+  and that session stays on past 24 idle hours.
+
 ## Install
 
 From a shell:
