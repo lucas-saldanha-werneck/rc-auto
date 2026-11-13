@@ -3,6 +3,7 @@
 [![CI](https://github.com/lucas-saldanha-werneck/rc-auto/actions/workflows/test.yml/badge.svg)](https://github.com/lucas-saldanha-werneck/rc-auto/actions/workflows/test.yml)
 [![License](https://img.shields.io/github/license/lucas-saldanha-werneck/rc-auto)](LICENSE)
 [![Version](https://img.shields.io/badge/version-0.2.6-blue)](CHANGELOG.md)
+[![plugin score (proposal)](https://img.shields.io/badge/plugin%20score%20(proposal)-98.8%20A-brightgreen)](https://github.com/NVIDIA/SkillEvaluator/issues/508)
 
 A Claude Code mod for the desktop app. It turns Remote Control on for a session when you type in
 it, and turns it off again after 24 hours without a message from you.
