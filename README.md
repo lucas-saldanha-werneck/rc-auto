@@ -1,7 +1,21 @@
 # rc-auto
 
+[![CI](https://github.com/lucas-saldanha-werneck/rc-auto/actions/workflows/test.yml/badge.svg)](https://github.com/lucas-saldanha-werneck/rc-auto/actions/workflows/test.yml)
+[![License](https://img.shields.io/github/license/lucas-saldanha-werneck/rc-auto)](LICENSE)
+[![Version](https://img.shields.io/badge/version-0.2.6-blue)](CHANGELOG.md)
+
 A Claude Code mod for the desktop app. It turns Remote Control on for a session when you type in
 it, and turns it off again after 24 hours without a message from you.
+
+[![rc-auto demo: tap to open the video](https://github.com/user-attachments/assets/a45e1457-ad93-4311-a33e-3f86ad4c3775)](https://lucas-saldanha-werneck.github.io/rc-auto/demo.mp4)
+
+<table>
+<tr>
+<td align="center"><img src="https://github.com/user-attachments/assets/2cf7f866-4c8f-4406-a793-b90cdd39fd3f" alt="The desktop app with Remote Control on after you type" width="320"><br>In the desktop app</td>
+<td align="center"><img src="https://github.com/user-attachments/assets/929a112a-15f3-42e4-908a-5721b1f3e92f" alt="The same session continued from a phone" width="320"><br>From your phone</td>
+<td align="center"><img src="https://github.com/user-attachments/assets/7c252144-99d5-45ea-ad16-490ce032f650" alt="Summary: connected when you type" width="320"><br>The idea in short</td>
+</tr>
+</table>
 
 Remote Control lets you keep using a Claude Code session that runs on your computer from
 claude.ai/code or the Claude mobile app
@@ -161,3 +175,7 @@ At a terminal session's prompt, use `/plugin` in place of `claude plugin`.
 MIT. See `LICENSE`.
 
 Built with Claude Code
+
+## Security
+
+See [SECURITY.md](SECURITY.md) for how to report a vulnerability and what this plugin accesses.
