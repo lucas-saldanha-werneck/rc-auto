@@ -2,6 +2,10 @@
 
 Versions are the `version` in `.claude-plugin/plugin.json`. Newest first.
 
+## 0.2.7 (2026-11-25)
+
+- Do nothing in T3 Code (detected by `T3CODE_THREAD_ID` or entrypoint `t3-code`): no Remote Control switch, no settings file; `/rc-auto` says it is not available there.
+
 ## 0.2.6 (2026-11-13)
 
 - README: add an Examples section.

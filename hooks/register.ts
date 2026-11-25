@@ -83,6 +83,18 @@ const restore = async ($: EngineInterface): Promise<void> => {
   }
 }
 
+// Inside T3 Code (pingdotgg/t3code) Remote Control is not used: T3 has its own
+// phone app. It sets T3CODE_THREAD_ID and CLAUDE_CODE_ENTRYPOINT=t3-code.
+const inT3Code = async ($: EngineInterface): Promise<boolean> => {
+  try {
+    const thread = await $.env.get('T3CODE_THREAD_ID')
+    if (thread !== undefined && thread !== '') return true
+    return (await $.env.get('CLAUDE_CODE_ENTRYPOINT')) === 't3-code'
+  } catch {
+    return false
+  }
+}
+
 const hasTool = async ($: EngineInterface): Promise<boolean> =>
   (await $.tool.list()).some(t => t.name === RC_TOOL)
 
@@ -276,6 +288,7 @@ const armOff = async ($: EngineInterface): Promise<void> => {
 export const register: Register = (on, options) => {
   optionFiles = paths(options?.keep_on_files)
   on('session.start', async ($, e, next) => {
+    if (await inT3Code($)) return next(e)
     await seedSettings($)
     await $.command.register({ name: 'rc-auto', description: 'Show what rc-auto did with Remote Control' })
     await restore($)
@@ -287,6 +300,7 @@ export const register: Register = (on, options) => {
   // The 24 hours count from the message, so a turn that is still running
   // is never cut off by the old deadline.
   on('prompt.submit', async ($, e, next) => {
+    if (await inT3Code($)) return next(e)
     const kind = e.origin?.kind
     const typed = kind === 'composer' || kind === 'bridge'
     if (typed) {
@@ -308,6 +322,7 @@ export const register: Register = (on, options) => {
   // before: you may have turned it off by hand, and the app leaves a switch
   // that is already on as it is ("no_change").
   on('turn.complete', async ($, e, next) => {
+    if (await inT3Code($)) return next(e)
     const ran = await next(e)
     if (!typedThisTurn || e.agentId !== undefined) return ran
     typedThisTurn = false
@@ -317,6 +332,7 @@ export const register: Register = (on, options) => {
   }).catch(($, e, next) => next(e))
 
   on('command.run', { command: 'rc-auto' }, async $ => {
+    if (await inT3Code($)) return { text: 'rc-auto: not available in T3 Code (Remote Control does not apply there; T3 Code has its own phone app).' }
     const typed = await read($, lastTypedAt)
     const err = await read($, lastError)
     const app = await hasTool($)
