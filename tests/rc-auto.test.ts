@@ -650,3 +650,38 @@ test('RA-07 a typed prompt that is dropped does not turn Remote Control on at a 
   await s.turn.complete({ answer: 'done', text: '' } as never)
   expect(calls).toEqual([])
 })
+
+test('inside T3 Code (thread id) rc-auto does nothing: no switch, no settings file', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.env(on, { HOME: '/home/u', T3CODE_THREAD_ID: 'thread-1' })
+  const writes = disk(on)
+  const calls = app(on)
+  await start($ as never)
+  await turn($ as never, 'composer')
+  expect(calls).toEqual([])
+  expect(writes).toEqual([])
+})
+
+test('inside T3 Code (entrypoint t3-code) rc-auto does nothing', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.env(on, { HOME: '/home/u', CLAUDE_CODE_ENTRYPOINT: 't3-code' })
+  const calls = app(on)
+  await turn($ as never, 'composer')
+  expect(calls).toEqual([])
+})
+
+test('outside T3 Code the same entrypoint check does not block it', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.env(on, { HOME: '/home/u', CLAUDE_CODE_ENTRYPOINT: 'cli' })
+  const calls = app(on)
+  await turn($ as never, 'composer')
+  expect(enabled(calls)).toEqual([true])
+})
+
+test('T3 variables inherited into a terminal (TMUX_PANE) do not count as T3 Code', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.env(on, { HOME: '/home/u', T3CODE_THREAD_ID: 'thread-1', CLAUDE_CODE_ENTRYPOINT: 't3-code', TMUX_PANE: '%1' })
+  const calls = app(on)
+  await turn($ as never, 'composer')
+  expect(enabled(calls)).toEqual([true])
+})
