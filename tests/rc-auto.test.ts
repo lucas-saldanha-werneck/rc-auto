@@ -677,3 +677,11 @@ test('outside T3 Code the same entrypoint check does not block it', async ($, on
   await turn($ as never, 'composer')
   expect(enabled(calls)).toEqual([true])
 })
+
+test('T3 variables inherited into a terminal (TMUX_PANE) do not count as T3 Code', async ($, on) => {
+  mock.clock(on, { now: 1000 })
+  mock.env(on, { HOME: '/home/u', T3CODE_THREAD_ID: 'thread-1', CLAUDE_CODE_ENTRYPOINT: 't3-code', TMUX_PANE: '%1' })
+  const calls = app(on)
+  await turn($ as never, 'composer')
+  expect(enabled(calls)).toEqual([true])
+})

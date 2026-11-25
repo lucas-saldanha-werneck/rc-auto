@@ -85,11 +85,17 @@ const restore = async ($: EngineInterface): Promise<void> => {
 
 // Inside T3 Code (pingdotgg/t3code) Remote Control is not used: T3 has its own
 // phone app. It sets T3CODE_THREAD_ID and CLAUDE_CODE_ENTRYPOINT=t3-code.
+// Those variables are inherited by child processes, so a terminal started from a
+// T3 session would look like T3: a session in a terminal (TMUX, TMUX_PANE or
+// TERM_PROGRAM set; the mod has no tty check) is not T3.
 const inT3Code = async ($: EngineInterface): Promise<boolean> => {
   try {
     const thread = await $.env.get('T3CODE_THREAD_ID')
-    if (thread !== undefined && thread !== '') return true
-    return (await $.env.get('CLAUDE_CODE_ENTRYPOINT')) === 't3-code'
+    const t3 = (thread !== undefined && thread !== '') || (await $.env.get('CLAUDE_CODE_ENTRYPOINT')) === 't3-code'
+    if (!t3) return false
+    const set = (v: string | undefined): boolean => v !== undefined && v !== ''
+    if (set(await $.env.get('TMUX_PANE')) || set(await $.env.get('TMUX')) || set(await $.env.get('TERM_PROGRAM'))) return false
+    return true
   } catch {
     return false
   }
